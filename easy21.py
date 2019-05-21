@@ -3,6 +3,7 @@ from enum import Enum
 
 Color = Enum('Color', 'red black')
 Status = Enum('Status', 'fine bust')
+Action = Enum('Action', 'hit stick')
 COLORS = [Color.red, Color.black]
 
 
@@ -22,12 +23,17 @@ class BasePlayer(object):
         return sum(c.val for c in self.cards)
 
     def status(self):
-        if 1 <= self.val() <= 21:
+        if 1 < self.val() <= 21:
             return Status.fine
         return Status.bust
 
+    def is_bust(self):
+        return self.status() == Status.bust
+
     def hit(self):
         self.cards.append(draw())
+        if self.status == Status.bust:
+            print(repr(self) + ' lost!')
 
 
 class Player(BasePlayer):
@@ -37,6 +43,7 @@ class Player(BasePlayer):
 
 
 class Dealer(BasePlayer):
+
     def __init__(self, cards):
         super(Dealer, self).__init__(cards)
 
@@ -46,17 +53,38 @@ class Dealer(BasePlayer):
 
 
 class State:
-    def __init__(self, dealer, player):
+
+    def __init__(self, dealer, player, status='active'):
         self.dealer = dealer
         self.player = player
+        self.status = status
+        if self.dealer.is_bust() or self.player.is_bust():
+            self.status = 'terminal'
 
     def take_action(self, player_action):
-        if player_action == 'hit':
+        status = self.status
+        if player_action == Action.hit:
             self.player.hit()
         else:
             self.dealer.act()
+            status = 'terminal'
+        return State(self.dealer, self.player, status)
 
-        return State(self.dealer, self.player)
+    def reward(self):
+        if self.dealer.is_bust() and not self.player.is_bust():
+            return 1
+        if not self.dealer.is_bust() and self.player.is_bust():
+            return -1
+        else:
+            if self.player.val() > self.dealer.val():
+                return 1
+            elif self.player.val() < self.dealer.val():
+                return -1
+        return 0
+
+    def __repr__(self):
+        return 'State(player val = {0}, dealer val = {1}, status = {2})'.format(
+            self.player.val(), self.dealer.val(), self.status)
 
 
 def draw(color=None):
@@ -83,15 +111,24 @@ def info(state):
     print('player value = {0}'.format(state.player.val()))
 
 
-def main():
+def run_episode():
     state = init_game()
+    states = [(state)]
+    reward = None
+    while (True):
+        action = np.random.choice([Action.hit, Action.stick])
+        next_state = step(state, action)
+        states.append((action, next_state))
+        if next_state.status == 'terminal':
+            reward = next_state.reward()
+            break
 
-    info(state)
+    return states, reward
 
-    while True:
-        action = raw_input('enter your action:')
-        state = step(state, action)
-        info(state)
+
+def main():
+    for i in range(10):
+        print(run_episode())
 
 
 if __name__ == "__main__":
