@@ -156,6 +156,8 @@ def compute_return(episode):
 
 
 def value_fn(dealer, player, state, action):
+    dealer = deepcopy(dealer)
+    player = deepcopy(player)
     next_state = step(dealer, player, state, action)
     episodes = [sample_episode(dealer, player, next_state) for _ in range(1000)]
     returns = [compute_return(e) for e in episodes]
@@ -166,29 +168,28 @@ def optimize(dealer, player, state):
     actions = [Action.hit, Action.stick]
     done = False
     state = deepcopy(state)
-    N0 = 100
+    N0 = 1000
     NS = {state: 1}
 
     def ep():
-        return N0 / (N0 + NS.get(state, 0))
+        return float(N0) / (N0 + NS.get(state, 0))
 
-    while not done:
+    while True:
+        print(state)
+        print(state.reward())
+
         hit_or_stick_vals = [value_fn(dealer, player, state, a) for a in actions]
         max_action = actions[np.argmax(hit_or_stick_vals)]
         other_action = actions[2 / (np.argmax(hit_or_stick_vals) + 1) - 1]
 
-        print('max action = {0}'.format(max_action))
-        print('other action = {0}'.format(other_action))
-
         player.policy.update(state, max_action, ep() / 2 + 1 - ep())
         player.policy.update(state, other_action, ep() / 2)
-        state = step(dealer, player, state, max_action)
+        state = step(dealer, player, state, player.choose_action(state))
 
-        done = state is None
+        if state is None:
+            break
+
         NS[state] = NS.get(state, 0) + 1
-
-        print(NS)
-        print(player.policy.state_action_probs)
 
 
 def main():
