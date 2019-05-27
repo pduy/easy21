@@ -31,9 +31,9 @@ class BasePlayer(object):
         return f'Player({self.cards})'
 
 
-class Player(BasePlayer):
+class MCPlayer(BasePlayer):
     def __init__(self, cards, policy, environment):
-        super(Player, self).__init__(cards)
+        super(MCPlayer, self).__init__(cards)
         self.policy = policy
         self.environment = environment
         self.actions = [Action.hit, Action.stick]
@@ -42,6 +42,7 @@ class Player(BasePlayer):
     def choose_action(self):
         if self.environment.state.is_terminal:
             return None
+
         return np.random.choice(self.actions,
                                 p=self.policy.dist(self.environment.state))
 
@@ -49,43 +50,39 @@ class Player(BasePlayer):
         player, environment = init_game()
         player.policy = deepcopy(self.policy)
 
-        states = []
+        states_actions = []
         while player.environment.state is not None:
             action = player.choose_action()
-            states.append((player.environment.state, action))
+            states_actions.append((player.environment.state, action))
             player.environment.state = player.environment.step(player, action)
 
-        if states[len(states) - 1][0].reward() == 1:
+        if states_actions[len(states_actions) - 1][0].reward() == 1:
             self.n_wins += 1
 
-        return states
+        return states_actions
 
     def train(self):
-        n_0 = 3
+        n_0 = 10
         steps = 10000
 
         def ep(a_state):
             return float(n_0) / (n_0 + count_states.get(a_state, 0))
 
-        for i in range(100):
-            print('step = {0}'.format(i))
-            self.n_wins = 0
-            count_states = {}
-            count_states_actions = {}
-            action_values = {}
-            for _ in range(steps):
-                episode = self.sample_episode()
-                evaluate_episode(episode, count_states, count_states_actions,
-                                 action_values)
+        self.n_wins = 0
+        count_states = {}
+        count_states_actions = {}
+        action_values = {}
+        for _ in range(steps):
+            episode = self.sample_episode()
+            evaluate_episode(episode, count_states, count_states_actions,
+                             action_values)
 
-            for s in count_states.keys():
+            for s, _ in count_states.items():
                 values = [action_values.get((s, a), 0) for a in self.actions]
                 greedy_action = self.actions[np.argmax(values)]
                 other_action = self.actions[1 - np.argmax(values)]
                 self.policy.update(s, greedy_action, ep(s) / 2 + 1 - ep(s))
                 self.policy.update(s, other_action, ep(s) / 2)
-
-            print(f'Win rates = {self.n_wins / steps}')
 
         _print_dict(self.policy.state_action_probs)
 
@@ -203,9 +200,9 @@ def draw(color=None):
 def init_game():
     dealer = Dealer([draw(color=Color.black)])
     environment = Environment(state=State(), dealer=dealer)
-    player = Player(cards=[draw(color=Color.black)],
-                    policy=Policy(),
-                    environment=environment)
+    player = MCPlayer(cards=[draw(color=Color.black)],
+                      policy=Policy(),
+                      environment=environment)
     environment.state.player_score = player.val()
     environment.state.dealer_score = dealer.val()
 
@@ -227,9 +224,30 @@ def evaluate_episode(episode, count_states, count_states_actions, action_value):
             / count_states_actions.get((state, action), 0)
 
 
+def demo(player, environment):
+    print(f'\n* Initial state = {environment.state}\n')
+    while not environment.state.is_terminal:
+        action = player.choose_action()
+        print(f'* Player chooses {action}')
+        environment.state = environment.step(player, action)
+        print(f'* Current state = {environment.state}')
+
+    if environment.state.reward() == 1:
+        print(f'############## PLAYER WINS')
+    elif environment.state.reward() == -1:
+        print(f'############## PLAYER LOSES')
+    else:
+        print(f'############## DRAW')
+
+
 def main():
     player, environment = init_game()
     player.train()
+
+    for _ in range(10):
+        demo_player, demo_environment = init_game()
+        demo_player.policy = deepcopy(player.policy)
+        demo(demo_player, demo_environment)
 
 
 if __name__ == "__main__":
