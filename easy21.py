@@ -1,6 +1,7 @@
 import numpy as np
 from enum import Enum
 from copy import deepcopy
+from collections import namedtuple
 
 Color = Enum('Color', 'red black')
 Status = Enum('Status', 'fine bust')
@@ -8,7 +9,13 @@ Action = Enum('Action', 'hit stick')
 COLORS = [Color.red, Color.black]
 
 
+def ep(count):
+    n_0 = 10
+    return float(n_0) / (n_0 + count)
+
+
 class Card:
+
     def __init__(self, val, color):
         self.color = color
         self.val = val if self.color == Color.black else -val
@@ -18,6 +25,7 @@ class Card:
 
 
 class BasePlayer(object):
+
     def __init__(self, cards):
         self.cards = cards
 
@@ -31,13 +39,16 @@ class BasePlayer(object):
         return f'Player({self.cards})'
 
 
-class MCPlayer(BasePlayer):
+class Agent(BasePlayer):
+
     def __init__(self, cards, policy, environment):
-        super(MCPlayer, self).__init__(cards)
+        super(Agent, self).__init__(cards)
         self.policy = policy
         self.environment = environment
         self.actions = [Action.hit, Action.stick]
         self.n_wins = 0
+        self.action_values = {}
+        self.count_states = {}
 
     def choose_action(self):
         if self.environment.state.is_terminal:
@@ -45,6 +56,18 @@ class MCPlayer(BasePlayer):
 
         return np.random.choice(self.actions,
                                 p=self.policy.dist(self.environment.state))
+
+    def greedy_update_policy(self, state):
+        count_s = self.count_states.get(state, 0)
+        values = [self.action_values.get((state, a), 0) for a in self.actions]
+        greedy_action = self.actions[np.argmax(values)]
+        other_action = self.actions[1 - np.argmax(values)]
+        self.policy.update(state, greedy_action,
+                           ep(count_s) / 2 + 1 - ep(count_s))
+        self.policy.update(state, other_action, ep(count_s) / 2)
+
+
+class MCPlayer(Agent):
 
     def sample_episode(self):
         player, environment = init_game()
@@ -62,32 +85,74 @@ class MCPlayer(BasePlayer):
         return states_actions
 
     def train(self):
-        n_0 = 10
-        steps = 10000
-
-        def ep(a_state):
-            return float(n_0) / (n_0 + count_states.get(a_state, 0))
+        steps = 1000
 
         self.n_wins = 0
-        count_states = {}
         count_states_actions = {}
-        action_values = {}
         for _ in range(steps):
             episode = self.sample_episode()
-            evaluate_episode(episode, count_states, count_states_actions,
-                             action_values)
+            evaluate_episode(episode, self.count_states, count_states_actions,
+                             self.action_values)
 
-            for s, _ in count_states.items():
-                values = [action_values.get((s, a), 0) for a in self.actions]
-                greedy_action = self.actions[np.argmax(values)]
-                other_action = self.actions[1 - np.argmax(values)]
-                self.policy.update(s, greedy_action, ep(s) / 2 + 1 - ep(s))
-                self.policy.update(s, other_action, ep(s) / 2)
+            for s, _ in episode:
+                self.greedy_update_policy(s)
+
+        _print_dict(self.policy.state_action_probs)
+
+
+Sarsa = namedtuple('Sarsa', 'state action reward next_state next_action')
+
+
+class SarsaPlayer(Agent):
+
+    def __init__(self, cards, policy, environment, alpha, gamma):
+        super(SarsaPlayer, self).__init__(cards, policy, environment)
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def update_action_values(self, sarsa: Sarsa):
+        self.action_values[(sarsa.state, sarsa.action)] = \
+            self.action_values.get((sarsa.state, sarsa.action), 0) \
+            + self.alpha * (
+                sarsa.reward + self.gamma * self.action_values.get(
+                    (sarsa.next_state, sarsa.next_action), 0)
+                - self.action_values.get((sarsa.state, sarsa.action), 0))
+
+    def update_values_one_ep(self):
+        player, environment = init_game()
+        player.policy = deepcopy(self.policy)
+
+        current_state = deepcopy(player.environment.state)
+        action = player.choose_action()
+        while not player.environment.state.is_terminal:
+            self.count_states[current_state] = \
+                self.count_states.get(current_state, 0) + 1
+            player.environment.state = player.environment.step(player, action)
+            reward = player.environment.state.reward()
+
+            self.greedy_update_policy(current_state)
+            next_action = player.choose_action()
+            self.update_action_values(
+                Sarsa(current_state, action, reward, player.environment.state,
+                      next_action))
+
+            current_state = deepcopy(player.environment.state)
+            action = next_action
+
+    def train(self):
+        # sample 1 next state, following the current policy
+        # Q(S, A) = Q(S, A) + alpha * (reward + gamma * Q(S', A') - Q(S, A))
+        steps = 1000
+
+        self.n_wins = 0
+        for _ in range(steps):
+            self.update_values_one_ep()
 
         _print_dict(self.policy.state_action_probs)
 
 
 class Dealer(BasePlayer):
+
     def __init__(self, cards):
         super(Dealer, self).__init__(cards)
 
@@ -97,6 +162,7 @@ class Dealer(BasePlayer):
 
 
 class State:
+
     def __init__(self, is_terminal: bool = False):
         self.dealer_score = 0
         self.player_score = 0
@@ -135,13 +201,14 @@ class State:
 
     def __ne__(self, other):
         return self.dealer_score != other.dealer_score \
-               or self.player_score != other.player_score
+            or self.player_score != other.player_score
 
     def __hash__(self):
         return hash((self.player_score, self.dealer_score))
 
 
 class Policy:
+
     def __init__(self):
         self.state_action_probs = {}
 
@@ -159,6 +226,7 @@ class Policy:
 
 
 class Environment:
+
     def __init__(self, state, dealer):
         self.state = state
         self.dealer = dealer
@@ -197,12 +265,18 @@ def draw(color=None):
                                     3]) if color is None else color)
 
 
-def init_game():
+def init_game(algo='sarsa'):
     dealer = Dealer([draw(color=Color.black)])
     environment = Environment(state=State(), dealer=dealer)
-    player = MCPlayer(cards=[draw(color=Color.black)],
-                      policy=Policy(),
+    player = SarsaPlayer(cards=[draw(color=Color.black)],
+                         policy=Policy(),
+                         environment=environment,
+                         alpha=0.2,
+                         gamma=0.2) \
+        if algo == 'sarsa' \
+        else MCPlayer(cards=[draw(color=Color.black)], policy=Policy(),
                       environment=environment)
+
     environment.state.player_score = player.val()
     environment.state.dealer_score = dealer.val()
 
@@ -241,13 +315,16 @@ def demo(player, environment):
 
 
 def main():
-    player, environment = init_game()
-    player.train()
+    sarsa_player, sarsa_environment = init_game('sarsa')
+    sarsa_player.train()
+    print('\n*****************************\n')
+    mc_player, mc_environment = init_game('mc')
+    mc_player.train()
 
-    for _ in range(10):
-        demo_player, demo_environment = init_game()
-        demo_player.policy = deepcopy(player.policy)
-        demo(demo_player, demo_environment)
+    # for _ in range(10):
+    #     demo_player, demo_environment = init_game()
+    #     demo_player.policy = deepcopy(sarsa_player.policy)
+    #     demo(demo_player, demo_environment)
 
 
 if __name__ == "__main__":
