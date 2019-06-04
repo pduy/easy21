@@ -4,6 +4,7 @@ import numpy as np
 
 Color = Enum('Color', 'red black')
 Action = Enum('Action', 'hit stick')
+ACTIONS = [Action.hit, Action.stick]
 COLORS = [Color.red, Color.black]
 
 
@@ -46,7 +47,7 @@ class State:
         self.is_terminal = is_terminal
 
     @classmethod
-    def from_players(cls, dealer_score, player_score, is_terminal):
+    def from_players(cls, dealer_score, player_score, is_terminal=False):
         new_state = cls(is_terminal)
         new_state.dealer_score = dealer_score
         new_state.player_score = player_score
@@ -79,6 +80,12 @@ class State:
     def __ne__(self, other):
         return self.dealer_score != other.dealer_score \
             or self.player_score != other.player_score
+
+    def __gt__(self, other):
+        return repr(self) > repr(other)
+
+    def __lt__(self, other):
+        return repr(self) < repr(other)
 
     def __hash__(self):
         return hash((self.player_score, self.dealer_score))
@@ -116,3 +123,13 @@ def draw(color=None):
         np.random.randint(1, 11),
         np.random.choice(COLORS, p=[1.0 / 3, 2.0 /
                                     3]) if color is None else color)
+
+
+def init_basic_game():
+    dealer = Dealer([draw(color=Color.black)])
+    environment = Environment(state=State(), dealer=dealer)
+    player = BasePlayer([draw(color=Color.black)])
+
+    environment.state.player_score = player.val()
+    environment.state.dealer_score = dealer.val()
+    return player, environment

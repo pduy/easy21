@@ -2,6 +2,8 @@ from collections import namedtuple
 from copy import deepcopy
 
 import numpy as np
+from matplotlib import cm
+from matplotlib import pyplot as plt
 
 import easy21 as game
 from easy21 import Color
@@ -9,8 +11,7 @@ from easy21 import Dealer
 from easy21 import Environment
 from easy21 import State
 from easy21 import draw
-
-Sarsa = namedtuple('Sarsa', 'state action reward next_state next_action')
+from mpl_toolkits.mplot3d import Axes3D
 
 
 def _print_dict(d):
@@ -19,7 +20,7 @@ def _print_dict(d):
 
 
 def ep(count):
-    n_0 = 10
+    n_0 = 1
     return float(n_0) / (n_0 + count)
 
 
@@ -28,10 +29,10 @@ def init_game(algo='sarsa'):
     environment = Environment(state=State(), dealer=dealer)
 
     if algo == 'sarsa':
-        player = SarsaPlayer(cards=[draw(color=Color.black)],
-                             policy=Policy(),
-                             environment=environment,
-                             sarsa_lambda=0.9)
+        player = SarsaLambdaPlayer(cards=[draw(color=Color.black)],
+                                   policy=Policy(),
+                                   environment=environment,
+                                   sarsa_lambda=0.5)
     else:
         player = MCPlayer(cards=[draw(color=Color.black)],
                           policy=Policy(),
@@ -42,14 +43,26 @@ def init_game(algo='sarsa'):
     return player, environment
 
 
+class Policy:
+    def __init__(self):
+        self.state_action_probs = {}
+
+    def update(self, state, action, prob):
+        self.state_action_probs[(state, action)] = prob
+
+    def dist(self, state):
+        return [self.prob(state, a) for a in game.ACTIONS]
+
+    def prob(self, state, action):
+        return self.state_action_probs.get((state, action), 0.5)
+
+
 class Agent(game.BasePlayer):
     def __init__(self, cards, policy, environment, gamma=1):
         super(Agent, self).__init__(cards)
         self.policy = policy
         self.environment = environment
-        self.actions = [game.Action.hit, game.Action.stick]
         self.gamma = gamma
-        self.n_wins = 0
         self.action_values = {}
         self.count_states = {}
         self.count_states_actions = {}
@@ -64,31 +77,80 @@ class Agent(game.BasePlayer):
         if self.environment.state.is_terminal:
             return None
 
-        return np.random.choice(self.actions,
+        return np.random.choice(game.ACTIONS,
                                 p=self.policy.dist(self.environment.state))
 
-    def greedy_update_policy(self, state):
+    def update_eps_greedy_policy_for(self, episode):
+        for s, _ in episode:
+            if s.is_terminal:
+                break
+            self.update_eps_greedy_policy(s)
+
+    def update_eps_greedy_policy(self, state):
         count_s = self.count_states.get(state, 0)
-        values = [self.action_values.get((state, a), 0) for a in self.actions]
-        greedy_action_index = np.argmax(values)
-        greedy_action = self.actions[greedy_action_index]
-        other_action = self.actions[1 - np.argmax(values)]
+        values = [self.action_values.get((state, a), 0) for a in game.ACTIONS]
+        greedy_action = game.ACTIONS[np.argmax(values)]
+        other_action = game.ACTIONS[1 - np.argmax(values)]
         self.policy.update(state, greedy_action,
                            ep(count_s) / 2 + 1 - ep(count_s))
         self.policy.update(state, other_action, ep(count_s) / 2)
 
+    def value_fn(self):
+        values = {}
+        states = np.unique([s for s, a in self.action_values.keys()])
+        for state in states:
+            pi_times_qs = [
+                self.policy.prob(state, a) * self.action_values.get(
+                    (state, a), 0) for a in game.ACTIONS
+            ]
+            values[state] = np.sum(pi_times_qs)
+
+        return values
+
+    def _get_value(self, dealer_score, player_score):
+        values = self.value_fn()
+        state = State.from_players(dealer_score=dealer_score,
+                                   player_score=player_score)
+
+        return values.get(state, 0)
+
+    def plot_value_function(self):
+        dealer_scores = np.arange(12)
+        player_scores = np.arange(22)
+        dealer_scores, player_scores = np.meshgrid(dealer_scores, player_scores)
+        values = np.array([
+            self._get_value(d, p)
+            for d, p in zip(np.ravel(dealer_scores), np.ravel(player_scores))
+        ])
+        values = np.array(values)
+        values = values.reshape(dealer_scores.shape)
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_title('Value function heat map w.r.t dealer and player status')
+        ax.plot_surface(X=dealer_scores,
+                        Y=player_scores,
+                        Z=values,
+                        cmap=cm.coolwarm,
+                        linewidth=0)
+        ax.set_xlabel('Dealer score')
+        ax.set_ylabel('Player score')
+        ax.set_zlabel('Value')
+        plt.show()
+
 
 class MCPlayer(Agent):
-    def evaluate_episode(self, episode):
+    def evaluate(self, episode):
         for i, (state, action) in enumerate(episode):
             if state.is_terminal:
                 return
 
             self.count(state, action)
-            alpha = 1 / self.count_states_actions.get((state, action), 0)
 
+            alpha = 1.0 / self.count_states_actions.get((state, action), 0)
             q_value = self.action_values.get((state, action), 0)
             g_t = np.sum([s.reward() for s, a in episode[i:]])
+
             self.action_values[(state, action)] = \
                 q_value + alpha * float(g_t - q_value)
 
@@ -102,28 +164,23 @@ class MCPlayer(Agent):
             states_actions.append((player.environment.state, action))
             player.environment.state = player.environment.step(player, action)
 
-        if states_actions[len(states_actions) - 1][0].reward() == 1:
-            self.n_wins += 1
-
         return states_actions
 
-    def train(self):
-        steps = 1000
-
-        self.n_wins = 0
-        for _ in range(steps):
+    def train(self, steps=100000):
+        for i in range(steps):
             episode = self.sample_episode()
-            self.evaluate_episode(episode)
+            self.evaluate(episode)
+            self.update_eps_greedy_policy_for(episode)
+        self.plot_value_function()
 
-            for s, _ in episode:
-                if s.is_terminal:
-                    continue
-                self.greedy_update_policy(s)
-
-        _print_dict(self.policy.state_action_probs)
+    def __repr__(self):
+        return f'MCPlayer, gamma = {self.gamma}'
 
 
-class SarsaPlayer(Agent):
+Sarsa = namedtuple('Sarsa', 'state action reward next_state next_action')
+
+
+class SarsaLambdaPlayer(Agent):
     def __init__(self, cards, policy, environment, sarsa_lambda=0.0):
         super().__init__(cards, policy, environment)
         self.eligibility_trace = {}
@@ -135,12 +192,15 @@ class SarsaPlayer(Agent):
             self.eligibility_trace.get((state, action), 0) + 1
 
     def update_action_values(self, sarsa: Sarsa):
+        """ Backward Sarsa Lambda algorithm. """
+
         alpha = 1 / self.count_states_actions.get(
             (sarsa.state, sarsa.action), 0)
         q_value = self.action_values.get((sarsa.state, sarsa.action), 0)
         next_q_value = self.action_values.get(
             (sarsa.next_state, sarsa.next_action), 0)
         td_error = sarsa.reward + self.gamma * next_q_value - q_value
+
         for (s, a) in self.count_states_actions.keys():
             e_sa = self.eligibility_trace.get((s, a), 0)
             q_sa = self.action_values.get((s, a), 0)
@@ -160,7 +220,7 @@ class SarsaPlayer(Agent):
             player.environment.state = player.environment.step(player, action)
             reward = player.environment.state.reward()
 
-            self.greedy_update_policy(current_state)
+            self.update_eps_greedy_policy(current_state)
             next_action = player.choose_action()
             self.update_action_values(
                 Sarsa(current_state, action, reward, player.environment.state,
@@ -169,25 +229,10 @@ class SarsaPlayer(Agent):
             current_state = deepcopy(player.environment.state)
             action = next_action
 
-    def train(self):
-        steps = 1000
-
-        self.n_wins = 0
-        for _ in range(steps):
+    def train(self, steps=100000):
+        for i in range(steps):
             self.update_values_one_ep()
+        self.plot_value_function()
 
-        # _print_dict(self.action_values)
-
-
-class Policy:
-    def __init__(self):
-        self.state_action_probs = {}
-
-    def update(self, state, action, prob):
-        self.state_action_probs[(state, action)] = prob
-
-    def dist(self, state):
-        return [
-            self.state_action_probs.get((state, a), 0.5)
-            for a in [game.Action.hit, game.Action.stick]
-        ]
+    def __repr__(self):
+        return f'Sarsa Player, gamma = {self.gamma}'
