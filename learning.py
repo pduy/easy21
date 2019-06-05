@@ -95,31 +95,27 @@ class Agent(game.BasePlayer):
                            ep(count_s) / 2 + 1 - ep(count_s))
         self.policy.update(state, other_action, ep(count_s) / 2)
 
-    def value_fn(self):
-        values = {}
+    def get_value_fn_table(self):
         states = np.unique([s for s, a in self.action_values.keys()])
-        for state in states:
-            pi_times_qs = [
-                self.policy.prob(state, a) * self.action_values.get(
-                    (state, a), 0) for a in game.ACTIONS
-            ]
-            values[state] = np.sum(pi_times_qs)
+        return {state: self._compute_value_of_state(state) for state in states}
 
-        return values
-
-    def _get_value(self, dealer_score, player_score):
-        values = self.value_fn()
-        state = State.from_players(dealer_score=dealer_score,
-                                   player_score=player_score)
-
-        return values.get(state, 0)
+    def _compute_value_of_state(self, state):
+        """ Value function V of a state is the expected Action Value Function
+        Q of all actions from that state.
+        V = sum_over_a (policy(a) * Q(a))
+        """
+        values_each_action = [
+            self.policy.prob(state, a) * self.action_values.get((state, a), 0)
+            for a in game.ACTIONS
+        ]
+        return np.sum(values_each_action)
 
     def plot_value_function(self):
         dealer_scores = np.arange(12)
         player_scores = np.arange(22)
         dealer_scores, player_scores = np.meshgrid(dealer_scores, player_scores)
         values = np.array([
-            self._get_value(d, p)
+            self._compute_value_of_state(State.from_players(d, p))
             for d, p in zip(np.ravel(dealer_scores), np.ravel(player_scores))
         ])
         values = np.array(values)
