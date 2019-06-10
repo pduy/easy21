@@ -85,8 +85,8 @@ def demo(player, environment):
     report_final_result(player, environment.state)
 
 
-def ai_play(algo, steps):
-    player, environment = learning.init_game(algo=algo)
+def ai_play(algo, slambda, steps):
+    player, environment = learning.init_game(algo=algo, slambda=slambda)
 
     print(f'Starting with player {player}')
     print(f'Player {player} is training ...')
@@ -104,13 +104,14 @@ def ai_play(algo, steps):
 
 @click.command()
 @click.option('--ai/--human', default=False)
-@click.option('--algo', default='sarsa', help='"sarsa" or "mcmc"')
+@click.option('--algo', default='sarsa', help='"sarsa", "mcmc" or "linear"')
+@click.option('--slambda', default=0.5, help='lambda value in case of SARSA')
 @click.option('--steps',
               default=10000,
-              help='Number of training steps. Default 100000.')
-def main(ai, algo, steps):
+              help='Number of training steps. Default 10000.')
+def main(ai, algo, slambda, steps):
     if ai:
-        ai_play(algo, steps)
+        ai_play(algo, slambda, steps)
     else:
         human_play()
 
