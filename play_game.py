@@ -3,8 +3,10 @@ from copy import deepcopy
 import click
 
 import easy21 as game
-import learning
-
+from easy21 import Dealer, draw, Color, Environment, State
+from function_approx import LinearFunctionPlayer
+from learning import Policy
+from table_lookup import SarsaLambdaPlayer, MCPlayer
 
 HELP = 'This is the card game Easy21 defined in the 2015 RL course by David ' \
        'Silver at UCL. \n\n' \
@@ -24,6 +26,67 @@ HELP = 'This is the card game Easy21 defined in the 2015 RL course by David ' \
        'dealer goes bust, then the player wins; otherwise, the outcome – win ' \
        '(reward +1), lose (reward -1), or draw (reward 0) – is the player ' \
        'with the largest sum. \n'
+
+
+@click.command()
+@click.option('--ai/--human', default=False)
+@click.option('--algo', default='sarsa', help='"sarsa", "mcmc" or "linear"')
+@click.option('--slambda', default=0.5, help='lambda value in case of SARSA')
+@click.option('--steps',
+              default=10000,
+              help='Number of training steps. Default 10000.')
+def main(ai, algo, slambda, steps):
+    if ai:
+        ai_play(algo, slambda, steps)
+    else:
+        human_play()
+
+
+def human_play():
+    print(HELP)
+
+    player, environment = game.init_basic_game()
+    game_over = False
+
+    print('GAME STARTS.')
+    print(f'Dealer shows: {environment.dealer.val()}')
+    print(f'You have: {player.val()}')
+
+    while not game_over:
+        print(f'\nNow choose an action: (0: "hit" or 1: "stick")')
+        try:
+            game_over = take_step_from_std_input(player, environment)
+        except ValueError:
+            print('Invalid action. Please choose again.')
+
+
+def ai_play(algo, slambda, steps):
+    player, environment = init_game(algo=algo, slambda=slambda)
+
+    print(f'Starting with player {player}')
+    print(f'Player {player} is training ...')
+
+    player.train(steps)
+
+    print('\n*******************FINISHED LEARNING ************************')
+    print(' Now AI will show off ^_^ \n')
+
+    for _ in range(10):
+        demo_player, demo_environment = init_game(algo=algo)
+        demo_player.policy = deepcopy(player.policy)
+        demo(demo_player, demo_environment)
+
+
+def demo(player, environment):
+    print(f'\n* Initial state = {environment.state}\n')
+    while not environment.state.is_terminal:
+        action = player.choose_action()
+        print(f'* {player} chooses {action}')
+
+        environment.state = environment.step(player, action)
+        print(f'* Current state = {environment.state}')
+
+    report_final_result(player, environment.state)
 
 
 def report_final_result(player, state: game.State):
@@ -55,65 +118,28 @@ def take_step_from_std_input(player, environment):
     return False
 
 
-def human_play():
-    print(HELP)
+def init_game(algo='sarsa', slambda=0.5):
+    dealer = Dealer([draw(color=Color.black)])
+    environment = Environment(state=State(), dealer=dealer)
 
-    player, environment = game.init_basic_game()
-    game_over = False
-
-    print('GAME STARTS.')
-    print(f'Dealer shows: {environment.dealer.val()}')
-    print(f'You have: {player.val()}')
-
-    while not game_over:
-        print(f'\nNow choose an action: (0: "hit" or 1: "stick")')
-        try:
-            game_over = take_step_from_std_input(player, environment)
-        except ValueError:
-            print('Invalid action. Please choose again.')
-
-
-def demo(player, environment):
-    print(f'\n* Initial state = {environment.state}\n')
-    while not environment.state.is_terminal:
-        action = player.choose_action()
-        print(f'* {player} chooses {action}')
-
-        environment.state = environment.step(player, action)
-        print(f'* Current state = {environment.state}')
-
-    report_final_result(player, environment.state)
-
-
-def ai_play(algo, slambda, steps):
-    player, environment = learning.init_game(algo=algo, slambda=slambda)
-
-    print(f'Starting with player {player}')
-    print(f'Player {player} is training ...')
-
-    player.train(steps)
-
-    print('\n*******************FINISHED LEARNING ************************')
-    print(' Now AI will show off ^_^ \n')
-
-    for _ in range(10):
-        demo_player, demo_environment = learning.init_game(algo=algo)
-        demo_player.policy = deepcopy(player.policy)
-        demo(demo_player, demo_environment)
-
-
-@click.command()
-@click.option('--ai/--human', default=False)
-@click.option('--algo', default='sarsa', help='"sarsa", "mcmc" or "linear"')
-@click.option('--slambda', default=0.5, help='lambda value in case of SARSA')
-@click.option('--steps',
-              default=10000,
-              help='Number of training steps. Default 10000.')
-def main(ai, algo, slambda, steps):
-    if ai:
-        ai_play(algo, slambda, steps)
+    if algo == 'sarsa':
+        player = SarsaLambdaPlayer(cards=[draw(color=Color.black)],
+                                   policy=Policy(),
+                                   environment=environment,
+                                   sarsa_lambda=slambda)
+    elif algo == 'mcmc':
+        player = MCPlayer(cards=[draw(color=Color.black)],
+                          policy=Policy(),
+                          environment=environment)
     else:
-        human_play()
+        player = LinearFunctionPlayer(cards=[draw(color=Color.black)],
+                                      policy=Policy(),
+                                      environment=environment,
+                                      sarsa_lambda=slambda)
+
+    environment.state.player_score = player.val()
+    environment.state.dealer_score = dealer.val()
+    return player, environment
 
 
 if __name__ == "__main__":
