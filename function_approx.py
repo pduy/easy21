@@ -6,6 +6,16 @@ from table_lookup import SarsaLambdaPlayer
 
 
 class LinearFunctionPlayer(SarsaLambdaPlayer):
+    """
+    The exploration strategy here is almost the same as Sarsa Lambda. The
+    difference is that we use a Linear Regression to approximate the
+    Action-Value Function (Q) instead of performing a Backward-Sarsa update.
+
+    This strategy (using a supervised model to estimate the (action) value
+    function) is effective in the case of very large or continuous action
+    space. In our case the benefit is not that clear because the action choices
+    are limited (only 2).
+    """
     def __init__(self, cards, policy, environment, sarsa_lambda=0.0):
         super().__init__(cards, policy, environment, sarsa_lambda)
         self._n_features = 36
