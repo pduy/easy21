@@ -10,25 +10,6 @@ from easy21 import State
 from mpl_toolkits.mplot3d import Axes3D
 
 
-def _print_dict(d):
-    for k, v in d.items():
-        print(f'{k}: {v}')
-
-
-class Policy:
-    def __init__(self):
-        self.state_action_probs = {}
-
-    def update(self, state, action, prob):
-        self.state_action_probs[(state, action)] = prob
-
-    def dist(self, state):
-        return [self.prob(state, a) for a in game.ACTIONS]
-
-    def prob(self, state, action):
-        return self.state_action_probs.get((state, action), 0.5)
-
-
 class Agent(game.BasePlayer):
     def __init__(self, cards, policy, environment, gamma=1, **kwargs):
         super(Agent, self).__init__(cards)
@@ -129,4 +110,23 @@ class Agent(game.BasePlayer):
         return self._action_values.get((state, action), 0)
 
 
+class Policy:
+    def __init__(self):
+        self.state_action_probs = {}
+
+    def update(self, state, action, prob):
+        self.state_action_probs[(state, action)] = prob
+
+    def dist(self, state):
+        return [self.prob(state, a) for a in game.ACTIONS]
+
+    def prob(self, state, action):
+        return self.state_action_probs.get((state, action), 0.5)
+
+
 Sarsa = namedtuple('Sarsa', 'state action reward next_state next_action')
+
+
+def _print_dict(d):
+    for k, v in d.items():
+        print(f'{k}: {v}')
