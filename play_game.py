@@ -119,27 +119,13 @@ def take_step_from_std_input(player, environment):
 
 
 def init_game(algo='sarsa', slambda=0.5):
-    dealer = Dealer([draw(color=Color.black)])
-    environment = Environment(state=State(), dealer=dealer)
-
-    if algo == 'sarsa':
-        player = SarsaLambdaPlayer(cards=[draw(color=Color.black)],
-                                   policy=Policy(),
-                                   environment=environment,
-                                   sarsa_lambda=slambda)
-    elif algo == 'mcmc':
-        player = MCPlayer(cards=[draw(color=Color.black)],
-                          policy=Policy(),
-                          environment=environment)
-    else:
-        player = LinearFunctionPlayer(cards=[draw(color=Color.black)],
-                                      policy=Policy(),
-                                      environment=environment,
-                                      sarsa_lambda=slambda)
-
-    environment.state.player_score = player.val()
-    environment.state.dealer_score = dealer.val()
-    return player, environment
+    player_choice = {
+        'mcmc': MCPlayer,
+        'sarsa': SarsaLambdaPlayer,
+        'linear': LinearFunctionPlayer
+    }
+    return player_choice[algo].generate_new_game(
+        cards=[draw(color=Color.black)], policy=Policy(), sarsa_lambda=slambda)
 
 
 if __name__ == "__main__":

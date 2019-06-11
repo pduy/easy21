@@ -30,18 +30,28 @@ class Policy:
 
 
 class Agent(game.BasePlayer):
-    def __init__(self, cards, policy, environment, gamma=1):
+    def __init__(self, cards, policy, environment, gamma=1, **kwargs):
         super(Agent, self).__init__(cards)
         self._policy = policy
-        self._environment = environment
+        self.environment = environment
         self._gamma = gamma
         self._action_values = {}
         self._count_states = {}
         self._count_states_actions = {}
 
     @classmethod
-    def reset(cls, **kwargs):
-        raise NotImplementedError
+    def generate_new_game(cls, cards, policy, **kwargs):
+        dealer = game.Dealer([game.draw(color=game.Color.black)])
+        environment = game.Environment(state=State(), dealer=dealer)
+
+        player = cls(cards=cards,
+                     policy=policy,
+                     environment=environment,
+                     **kwargs)
+
+        environment.state.player_score = player.val()
+        environment.state.dealer_score = dealer.val()
+        return player, environment
 
     def count(self, state, action=None):
         if action is not None:
@@ -50,11 +60,11 @@ class Agent(game.BasePlayer):
         self._count_states[state] = self._count_states.get(state, 0) + 1
 
     def choose_action(self):
-        if self._environment.state.is_terminal:
+        if self.environment.state.is_terminal:
             return None
 
         return np.random.choice(game.ACTIONS,
-                                p=self._policy.dist(self._environment.state))
+                                p=self._policy.dist(self.environment.state))
 
     def update_eps_greedy_policy_for(self, episode):
         for s, _ in episode:

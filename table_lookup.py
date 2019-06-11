@@ -2,24 +2,11 @@ from copy import deepcopy
 
 import numpy as np
 
-from easy21 import Dealer, draw, Color, Environment, State
+from easy21 import draw, Color
 from learning import Agent, Sarsa
 
 
 class MCPlayer(Agent):
-    @classmethod
-    def reset(cls, **kwargs):
-        dealer = Dealer([draw(color=Color.black)])
-        environment = Environment(state=State(), dealer=dealer)
-
-        player = cls(cards=[draw(color=Color.black)],
-                     policy=kwargs['policy'],
-                     environment=environment)
-
-        environment.state.player_score = player.val()
-        environment.state.dealer_score = dealer.val()
-        return player, environment
-
     def evaluate(self, episode):
         for i, (state, action) in enumerate(episode):
             if state.is_terminal:
@@ -35,13 +22,14 @@ class MCPlayer(Agent):
                 q_value + alpha * float(g_t - q_value)
 
     def sample_episode(self):
-        player, environment = self.reset(policy=self._policy)
+        player, environment = self.generate_new_game(
+            cards=[draw(color=Color.black)], policy=self._policy)
 
         states_actions = []
-        while player._environment.state is not None:
+        while player.environment.state is not None:
             action = player.choose_action()
-            states_actions.append((player._environment.state, action))
-            player._environment.state = player._environment.step(player, action)
+            states_actions.append((player.environment.state, action))
+            player.environment.state = player.environment.step(player, action)
 
         return states_actions
 
@@ -61,20 +49,6 @@ class SarsaLambdaPlayer(Agent):
         super().__init__(cards, policy, environment)
         self._eligibility_trace = {}
         self.sarsa_lambda = sarsa_lambda
-
-    @classmethod
-    def reset(cls, **kwargs):
-        dealer = Dealer([draw(color=Color.black)])
-        environment = Environment(state=State(), dealer=dealer)
-
-        player = cls(cards=[draw(color=Color.black)],
-                     policy=kwargs['policy'],
-                     environment=environment,
-                     sarsa_lambda=kwargs['sarsa_lambda'])
-
-        environment.state.player_score = player.val()
-        environment.state.dealer_score = dealer.val()
-        return player, environment
 
     def count(self, state, action=None):
         super().count(state, action)
@@ -98,24 +72,26 @@ class SarsaLambdaPlayer(Agent):
                 self._gamma * self.sarsa_lambda * e_sa
 
     def update_values_one_ep(self):
-        player, environment = self.reset(policy=self._policy,
-                                         sarsa_lambda=self.sarsa_lambda)
+        player, environment = self.generate_new_game(
+            cards=[draw(color=Color.black)],
+            policy=self._policy,
+            sarsa_lambda=self.sarsa_lambda)
 
-        current_state = deepcopy(player._environment.state)
+        current_state = deepcopy(player.environment.state)
         action = player.choose_action()
-        while not player._environment.state.is_terminal:
+        while not player.environment.state.is_terminal:
             self.count(current_state, action)
 
-            player._environment.state = player._environment.step(player, action)
-            reward = player._environment.state.reward()
+            player.environment.state = player.environment.step(player, action)
+            reward = player.environment.state.reward()
 
             self.update_eps_greedy_policy(current_state)
             next_action = player.choose_action()
             self.update_action_values(
-                Sarsa(current_state, action, reward, player._environment.state,
+                Sarsa(current_state, action, reward, player.environment.state,
                       next_action))
 
-            current_state = deepcopy(player._environment.state)
+            current_state = deepcopy(player.environment.state)
             action = next_action
 
     def train(self, steps=100000):
